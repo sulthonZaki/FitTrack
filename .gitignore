@@ -1,0 +1,37 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# PHP / Laravel
+vendor/
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*.php
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+build/
+flutter_export_environment.sh
+
+# IDE and operating system
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
