@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\ExerciseController as AdminExerciseController;
 use App\Http\Controllers\Api\V1\Admin\MuscleGroupController as AdminMuscleGroupController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ExerciseController;
@@ -143,6 +144,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('admin')
             ->middleware(EnsureUserIsAdmin::class)
             ->group(function () {
+                // Muscle Groups
                 Route::get('/muscle-groups', [
                     AdminMuscleGroupController::class, 'index',
                 ]);
@@ -162,6 +164,32 @@ Route::prefix('v1')->group(function () {
                 Route::delete('/muscle-groups/{muscleGroup}', [
                     AdminMuscleGroupController::class, 'destroy',
                 ])->whereNumber('muscleGroup');
+
+                // Exercises
+                Route::get('/exercises', [
+                    AdminExerciseController::class, 'index',
+                ]);
+
+                Route::post('/exercises', [
+                    AdminExerciseController::class, 'store',
+                ]);
+
+                Route::get('/exercises/{exercise}', [
+                    AdminExerciseController::class, 'show',
+                ])->whereNumber('exercise');
+
+                Route::put('/exercises/{exercise}', [
+                    AdminExerciseController::class, 'update',
+                ])->whereNumber('exercise');
+
+                Route::delete('/exercises/{exercise}', [
+                    AdminExerciseController::class, 'destroy',
+                ])->whereNumber('exercise');
+
+                Route::post('/exercises/{exercise}/image', [
+                    AdminExerciseController::class, 'uploadImage',
+                ])->whereNumber('exercise')
+                    ->middleware('throttle:10,1');
             });
     });
 });
