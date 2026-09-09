@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\MuscleGroupController as AdminMuscleGroupController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ExerciseController;
 use App\Http\Controllers\Api\V1\MuscleGroupController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\Api\V1\WorkoutPlanController;
 use App\Http\Controllers\Api\V1\WorkoutPlanExerciseController;
 use App\Http\Controllers\Api\V1\WorkoutSessionController;
 use App\Http\Controllers\Api\V1\WorkoutSetController;
+use App\Http\Middleware\EnsureUserIsAdmin;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -21,7 +23,7 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:10,1');
 
     Route::middleware('auth:sanctum')->group(function () {
-        // Profile dan logout
+        // Profile
         Route::get('/me', [AuthController::class, 'me']);
 
         Route::patch('/me', [ProfileController::class, 'update'])
@@ -124,7 +126,7 @@ Route::prefix('v1')->group(function () {
             'setNumber',
         ]);
 
-        // Progress
+        // Progress dan Statistics
         Route::get('/progress', [
             ProgressController::class, 'index',
         ]);
@@ -133,9 +135,33 @@ Route::prefix('v1')->group(function () {
             ProgressController::class, 'show',
         ])->whereNumber('exercise');
 
-        // Statistics
         Route::get('/statistics', [
             StatisticsController::class, 'index',
         ]);
+
+        // Admin
+        Route::prefix('admin')
+            ->middleware(EnsureUserIsAdmin::class)
+            ->group(function () {
+                Route::get('/muscle-groups', [
+                    AdminMuscleGroupController::class, 'index',
+                ]);
+
+                Route::post('/muscle-groups', [
+                    AdminMuscleGroupController::class, 'store',
+                ]);
+
+                Route::get('/muscle-groups/{muscleGroup}', [
+                    AdminMuscleGroupController::class, 'show',
+                ])->whereNumber('muscleGroup');
+
+                Route::put('/muscle-groups/{muscleGroup}', [
+                    AdminMuscleGroupController::class, 'update',
+                ])->whereNumber('muscleGroup');
+
+                Route::delete('/muscle-groups/{muscleGroup}', [
+                    AdminMuscleGroupController::class, 'destroy',
+                ])->whereNumber('muscleGroup');
+            });
     });
 });

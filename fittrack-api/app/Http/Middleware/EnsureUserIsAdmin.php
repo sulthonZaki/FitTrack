@@ -8,13 +8,20 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureUserIsAdmin
 {
-    /**
-     * Handle an incoming request.
-     *
-     * @param  Closure(Request): (Response)  $next
-     */
     public function handle(Request $request, Closure $next): Response
     {
+        if ($request->user() === null) {
+            return response()->json([
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
+        if (! $request->user()->isAdmin()) {
+            return response()->json([
+                'message' => 'Akses hanya untuk admin.',
+            ], 403);
+        }
+
         return $next($request);
     }
 }
