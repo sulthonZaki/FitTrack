@@ -5,32 +5,45 @@ use App\Http\Controllers\Api\V1\ExerciseController;
 use App\Http\Controllers\Api\V1\MuscleGroupController;
 use App\Http\Controllers\Api\V1\WorkoutPlanController;
 use App\Http\Controllers\Api\V1\WorkoutPlanExerciseController;
+use App\Http\Controllers\Api\V1\WorkoutSessionController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
 
-    // Register dan login
+    // ========================================
+    // AUTHENTICATION
+    // ========================================
+
     Route::post('/register', [AuthController::class, 'register'])
         ->middleware('throttle:5,1');
 
     Route::post('/login', [AuthController::class, 'login'])
         ->middleware('throttle:10,1');
 
-    // Semua endpoint berikut membutuhkan autentikasi
+    // Semua endpoint berikut membutuhkan token.
     Route::middleware('auth:sanctum')->group(function () {
 
-        // Profil dan logout
+        // ========================================
+        // PROFILE & LOGOUT
+        // ========================================
+
         Route::get('/me', [AuthController::class, 'me']);
 
         Route::post('/logout', [AuthController::class, 'logout']);
 
-        // Katalog muscle group
+        // ========================================
+        // MUSCLE GROUPS
+        // ========================================
+
         Route::get(
             '/muscle-groups',
             [MuscleGroupController::class, 'index']
         );
 
-        // Katalog exercise
+        // ========================================
+        // EXERCISE LIBRARY
+        // ========================================
+
         Route::get(
             '/exercises',
             [ExerciseController::class, 'index']
@@ -41,7 +54,10 @@ Route::prefix('v1')->group(function () {
             [ExerciseController::class, 'show']
         )->whereNumber('exercise');
 
-        // Workout plan CRUD
+        // ========================================
+        // WORKOUT PLANS
+        // ========================================
+
         Route::get(
             '/workout-plans',
             [WorkoutPlanController::class, 'index']
@@ -67,29 +83,53 @@ Route::prefix('v1')->group(function () {
             [WorkoutPlanController::class, 'destroy']
         )->whereNumber('workoutPlan');
 
-        // Tambah exercise ke plan
+        // ========================================
+        // EXERCISES WITHIN WORKOUT PLANS
+        // ========================================
+
         Route::post(
             '/workout-plans/{workoutPlan}/exercises',
             [WorkoutPlanExerciseController::class, 'store']
         )->whereNumber('workoutPlan');
 
-        // Ubah exercise atau target dalam plan
         Route::patch(
             '/workout-plans/{workoutPlan}/exercises/{itemId}',
             [WorkoutPlanExerciseController::class, 'update']
         )->whereNumber('workoutPlan')->whereNumber('itemId');
 
-        // Hapus item exercise dari plan
         Route::delete(
             '/workout-plans/{workoutPlan}/exercises/{itemId}',
             [WorkoutPlanExerciseController::class, 'destroy']
         )->whereNumber('workoutPlan')->whereNumber('itemId');
 
-        // Atur urutan seluruh item exercise dalam plan
         Route::put(
             '/workout-plans/{workoutPlan}/exercise-order',
             [WorkoutPlanExerciseController::class, 'reorder']
         )->whereNumber('workoutPlan');
+
+        // ========================================
+        // WORKOUT SESSIONS
+        // ========================================
+
+        Route::post(
+            '/workout-sessions',
+            [WorkoutSessionController::class, 'store']
+        );
+
+        Route::get(
+            '/workout-sessions/active',
+            [WorkoutSessionController::class, 'active']
+        );
+
+        Route::get(
+            '/workout-sessions/{workoutSession}',
+            [WorkoutSessionController::class, 'show']
+        )->whereNumber('workoutSession');
+
+        Route::put(
+            '/workout-sessions/{workoutSession}/cancel',
+            [WorkoutSessionController::class, 'cancel']
+        )->whereNumber('workoutSession');
 
     });
 });
