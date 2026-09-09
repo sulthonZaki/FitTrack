@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Api\V1\Admin\ExerciseController as AdminExerciseController;
 use App\Http\Controllers\Api\V1\Admin\MuscleGroupController as AdminMuscleGroupController;
+use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ExerciseController;
 use App\Http\Controllers\Api\V1\MuscleGroupController;
@@ -144,6 +146,15 @@ Route::prefix('v1')->group(function () {
         Route::prefix('admin')
             ->middleware(EnsureUserIsAdmin::class)
             ->group(function () {
+                // Dashboard dan Users
+                Route::get('/dashboard', [
+                    AdminDashboardController::class, 'index',
+                ]);
+
+                Route::get('/users', [
+                    AdminUserController::class, 'index',
+                ]);
+
                 // Muscle Groups
                 Route::get('/muscle-groups', [
                     AdminMuscleGroupController::class, 'index',
