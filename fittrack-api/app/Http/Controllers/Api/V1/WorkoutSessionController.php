@@ -253,6 +253,65 @@ class WorkoutSessionController extends Controller
             ]);
     }
 
+    public function complete(
+    Request $request,
+    string $workoutSession
+): WorkoutSessionResource {
+    $session = DB::transaction(function () use (
+        $request,
+        $workoutSession
+    ) {
+        $session = $request->user()
+            ->workoutSessions()
+            ->lockForUpdate()
+            ->findOrFail($workoutSession);
+
+        // Retry complete mengembalikan sesi yang sama.
+        if ($session->status === WorkoutSession::STATUS_COMPLETED) {
+            return $session;
+        }
+
+        if ($session->status !== WorkoutSession::STATUS_IN_PROGRESS) {
+            throw new HttpResponseException(
+                response()->json([
+                    'message' => 'Workout yang dibatalkan tidak dapat diselesaikan.',
+                ], 409)
+            );
+        }
+
+        $hasCompletedSet = $session->sessionExercises()
+            ->whereHas('sets')
+            ->exists();
+
+        if (! $hasCompletedSet) {
+            throw ValidationException::withMessages([
+                'workout_session' =>
+                    'Catat minimal satu set sebelum menyelesaikan workout.',
+            ]);
+        }
+
+        $finishedAt = now();
+
+        $session->update([
+            'status' => WorkoutSession::STATUS_COMPLETED,
+            'finished_at' => $finishedAt,
+            'duration_seconds' => max(
+                0,
+                (int) $session->started_at->diffInSeconds($finishedAt)
+            ),
+        ]);
+
+        return $session;
+    }, 3);
+
+    $this->loadSession($session);
+
+    return (new WorkoutSessionResource($session))
+        ->additional([
+            'message' => 'Workout berhasil diselesaikan.',
+        ]);
+}
+
     private function loadSession(WorkoutSession $session): void
     {
         $session->load('sessionExercises.sets');

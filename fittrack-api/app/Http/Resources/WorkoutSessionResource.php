@@ -9,6 +9,29 @@ class WorkoutSessionResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $hasExercises = $this->resource
+            ->relationLoaded('sessionExercises');
+
+        $exercises = $hasExercises
+            ? $this->sessionExercises
+            : collect();
+
+        // Controller memuat sessionExercises.sets.
+        $sets = $exercises->flatMap(
+            fn ($exercise) => $exercise->sets
+        );
+
+        $performedExerciseCount = $exercises
+            ->filter(fn ($exercise) => $exercise->sets->isNotEmpty())
+            ->count();
+
+        $volume = round(
+            $sets->sum(
+                fn ($set) => (float) $set->weight_kg * $set->reps
+            ),
+            3
+        );
+
         return [
             'id' => $this->id,
             'workout_plan_id' => $this->workout_plan_id,
@@ -24,6 +47,21 @@ class WorkoutSessionResource extends JsonResource
 
             'planned_exercise_count' => $this->whenCounted(
                 'sessionExercises'
+            ),
+
+            'performed_exercise_count' => $this->when(
+                $hasExercises,
+                $performedExerciseCount
+            ),
+
+            'total_sets' => $this->when(
+                $hasExercises,
+                $sets->count()
+            ),
+
+            'total_volume_kg_reps' => $this->when(
+                $hasExercises,
+                $volume
             ),
 
             'exercises' => WorkoutSessionExerciseResource::collection(

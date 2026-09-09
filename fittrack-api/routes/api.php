@@ -6,44 +6,32 @@ use App\Http\Controllers\Api\V1\MuscleGroupController;
 use App\Http\Controllers\Api\V1\WorkoutPlanController;
 use App\Http\Controllers\Api\V1\WorkoutPlanExerciseController;
 use App\Http\Controllers\Api\V1\WorkoutSessionController;
+use App\Http\Controllers\Api\V1\WorkoutSetController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
 
-    // ========================================
-    // AUTHENTICATION
-    // ========================================
-
+    // Authentication
     Route::post('/register', [AuthController::class, 'register'])
         ->middleware('throttle:5,1');
 
     Route::post('/login', [AuthController::class, 'login'])
         ->middleware('throttle:10,1');
 
-    // Semua endpoint berikut membutuhkan token.
     Route::middleware('auth:sanctum')->group(function () {
 
-        // ========================================
-        // PROFILE & LOGOUT
-        // ========================================
-
+        // Profile dan logout
         Route::get('/me', [AuthController::class, 'me']);
 
         Route::post('/logout', [AuthController::class, 'logout']);
 
-        // ========================================
-        // MUSCLE GROUPS
-        // ========================================
-
+        // Muscle groups
         Route::get(
             '/muscle-groups',
             [MuscleGroupController::class, 'index']
         );
 
-        // ========================================
-        // EXERCISE LIBRARY
-        // ========================================
-
+        // Exercise library
         Route::get(
             '/exercises',
             [ExerciseController::class, 'index']
@@ -54,10 +42,7 @@ Route::prefix('v1')->group(function () {
             [ExerciseController::class, 'show']
         )->whereNumber('exercise');
 
-        // ========================================
-        // WORKOUT PLANS
-        // ========================================
-
+        // Workout plans
         Route::get(
             '/workout-plans',
             [WorkoutPlanController::class, 'index']
@@ -83,10 +68,7 @@ Route::prefix('v1')->group(function () {
             [WorkoutPlanController::class, 'destroy']
         )->whereNumber('workoutPlan');
 
-        // ========================================
-        // EXERCISES WITHIN WORKOUT PLANS
-        // ========================================
-
+        // Exercise dalam plan
         Route::post(
             '/workout-plans/{workoutPlan}/exercises',
             [WorkoutPlanExerciseController::class, 'store']
@@ -107,10 +89,7 @@ Route::prefix('v1')->group(function () {
             [WorkoutPlanExerciseController::class, 'reorder']
         )->whereNumber('workoutPlan');
 
-        // ========================================
-        // WORKOUT SESSIONS
-        // ========================================
-
+        // Workout sessions
         Route::post(
             '/workout-sessions',
             [WorkoutSessionController::class, 'store']
@@ -130,6 +109,28 @@ Route::prefix('v1')->group(function () {
             '/workout-sessions/{workoutSession}/cancel',
             [WorkoutSessionController::class, 'cancel']
         )->whereNumber('workoutSession');
+
+        Route::put(
+            '/workout-sessions/{workoutSession}/complete',
+            [WorkoutSessionController::class, 'complete']
+        )->whereNumber('workoutSession');
+
+        // Pencatatan set
+        Route::put(
+            '/workout-sessions/{workoutSession}/exercises/{sessionExerciseId}/sets/{setNumber}',
+            [WorkoutSetController::class, 'upsert']
+        )
+            ->whereNumber('workoutSession')
+            ->whereNumber('sessionExerciseId')
+            ->whereNumber('setNumber');
+
+        Route::delete(
+            '/workout-sessions/{workoutSession}/exercises/{sessionExerciseId}/sets/{setNumber}',
+            [WorkoutSetController::class, 'destroy']
+        )
+            ->whereNumber('workoutSession')
+            ->whereNumber('sessionExerciseId')
+            ->whereNumber('setNumber');
 
     });
 });
