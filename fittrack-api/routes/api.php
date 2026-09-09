@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ExerciseController;
 use App\Http\Controllers\Api\V1\MuscleGroupController;
+use App\Http\Controllers\Api\V1\StatisticsController;
 use App\Http\Controllers\Api\V1\WorkoutPlanController;
 use App\Http\Controllers\Api\V1\WorkoutPlanExerciseController;
 use App\Http\Controllers\Api\V1\WorkoutSessionController;
@@ -89,7 +90,12 @@ Route::prefix('v1')->group(function () {
             [WorkoutPlanExerciseController::class, 'reorder']
         )->whereNumber('workoutPlan');
 
-        // Workout sessions
+        // Workout sessions dan history
+        Route::get(
+            '/workout-sessions',
+            [WorkoutSessionController::class, 'index']
+        );
+
         Route::post(
             '/workout-sessions',
             [WorkoutSessionController::class, 'store']
@@ -131,6 +137,12 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('workoutSession')
             ->whereNumber('sessionExerciseId')
             ->whereNumber('setNumber');
+
+        // Statistics
+        Route::get(
+            '/statistics',
+            [StatisticsController::class, 'index']
+        );
 
     });
 });

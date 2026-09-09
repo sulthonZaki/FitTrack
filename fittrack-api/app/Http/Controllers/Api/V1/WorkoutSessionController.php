@@ -8,14 +8,92 @@ use App\Models\Exercise;
 use App\Models\MuscleGroup;
 use App\Models\User;
 use App\Models\WorkoutSession;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class WorkoutSessionController extends Controller
 {
+    /**
+     * Riwayat workout milik user.
+     * Default: hanya workout yang sudah selesai.
+     */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $rules = [
+            'status' => [
+                'sometimes',
+                Rule::in([
+                    WorkoutSession::STATUS_IN_PROGRESS,
+                    WorkoutSession::STATUS_COMPLETED,
+                    WorkoutSession::STATUS_CANCELLED,
+                ]),
+            ],
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d'],
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes', 'integer', 'between:1,50'],
+        ];
+
+        if ($request->filled('date_from')) {
+            $rules['date_to'][] = 'after_or_equal:date_from';
+        }
+
+        $validated = $request->validate($rules);
+
+        $status = $validated['status']
+            ?? WorkoutSession::STATUS_COMPLETED;
+
+        $timezone = $request->user()->timezone ?? 'Asia/Jakarta';
+
+        $dateColumn = $status === WorkoutSession::STATUS_IN_PROGRESS
+            ? 'started_at'
+            : 'finished_at';
+
+        $query = $request->user()
+            ->workoutSessions()
+            ->where('status', $status)
+            ->withCount('sessionExercises');
+
+        if (! empty($validated['date_from'])) {
+            $from = CarbonImmutable::parse(
+                $validated['date_from'],
+                $timezone
+            )->startOfDay()->utc();
+
+            $query->where($dateColumn, '>=', $from);
+        }
+
+        if (! empty($validated['date_to'])) {
+            // Batas akhir eksklusif: awal hari berikutnya.
+            $until = CarbonImmutable::parse(
+                $validated['date_to'],
+                $timezone
+            )->startOfDay()->addDay()->utc();
+
+            $query->where($dateColumn, '<', $until);
+        }
+
+        $sessions = $query
+            ->orderByDesc($dateColumn)
+            ->orderByDesc('id')
+            ->paginate((int) ($validated['per_page'] ?? 15))
+            ->withQueryString();
+
+        return WorkoutSessionResource::collection($sessions)
+            ->additional([
+                'message' => 'Riwayat workout berhasil diambil.',
+            ]);
+    }
+
+    /**
+     * Memulai workout dari plan milik user.
+     */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -26,133 +104,139 @@ class WorkoutSessionController extends Controller
             'started_at' => ['prohibited'],
         ]);
 
-        $requestId = strtolower($validated['client_request_id']);
+        $planId = (int) $validated['workout_plan_id'];
+        $clientRequestId = strtolower($validated['client_request_id']);
 
-        [$session, $created] = DB::transaction(function () use (
-            $request,
-            $validated,
-            $requestId
-        ) {
-            // Semua request start untuk user yang sama diproses bergantian.
-            $user = User::query()
-                ->whereKey($request->user()->id)
-                ->lockForUpdate()
-                ->firstOrFail();
+        [$session, $created] = DB::transaction(
+            function () use ($request, $planId, $clientRequestId) {
+                // Serialisasi start workout untuk user yang sama.
+                $user = User::query()
+                    ->whereKey($request->user()->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            // Retry request lama mengembalikan sesi yang sama.
-            $existing = $user->workoutSessions()
-                ->where('client_request_id', $requestId)
-                ->first();
+                $existingSession = $user->workoutSessions()
+                    ->where('client_request_id', $clientRequestId)
+                    ->first();
 
-            if ($existing) {
-                if (
-                    (int) $existing->workout_plan_id
-                    !== (int) $validated['workout_plan_id']
-                ) {
+                // Retry dengan UUID yang sama mengembalikan sesi sebelumnya.
+                if ($existingSession !== null) {
+                    if ((int) $existingSession->workout_plan_id !== $planId) {
+                        throw new HttpResponseException(
+                            response()->json([
+                                'message' => 'client_request_id sudah digunakan untuk workout plan lain.',
+                            ], 409)
+                        );
+                    }
+
+                    return [$existingSession, false];
+                }
+
+                $activeSession = $user->workoutSessions()
+                    ->where(
+                        'status',
+                        WorkoutSession::STATUS_IN_PROGRESS
+                    )
+                    ->first();
+
+                if ($activeSession !== null) {
                     throw new HttpResponseException(
                         response()->json([
-                            'message' => 'client_request_id sudah digunakan untuk plan lain.',
+                            'message' => 'Masih ada workout yang sedang berlangsung.',
+                            'data' => [
+                                'active_session_id' => $activeSession->id,
+                            ],
                         ], 409)
                     );
                 }
 
-                return [$existing, false];
-            }
+                $plan = $user->workoutPlans()
+                    ->whereKey($planId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            $activeSession = $user->workoutSessions()
-                ->where('status', WorkoutSession::STATUS_IN_PROGRESS)
-                ->first();
+                $items = $plan->planExercises()
+                    ->reorder()
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
 
-            if ($activeSession) {
-                throw new HttpResponseException(
-                    response()->json([
-                        'message' => 'Masih ada workout yang sedang berjalan.',
-                        'data' => [
-                            'active_session_id' => $activeSession->id,
-                        ],
-                    ], 409)
-                );
-            }
-
-            // Plan harus aktif dan dimiliki user yang login.
-            $plan = $user->workoutPlans()
-                ->lockForUpdate()
-                ->findOrFail($validated['workout_plan_id']);
-
-            $items = $plan->planExercises()
-                ->reorder()
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get();
-
-            if ($items->isEmpty()) {
-                throw ValidationException::withMessages([
-                    'workout_plan_id' => 'Tambahkan minimal satu exercise sebelum memulai workout.',
-                ]);
-            }
-
-            // Kunci data katalog selama snapshot dibuat.
-            $exercises = Exercise::query()
-                ->whereIn('id', $items->pluck('exercise_id')->unique())
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
-
-            $muscleGroups = MuscleGroup::query()
-                ->whereIn(
-                    'id',
-                    $exercises->pluck('muscle_group_id')->unique()
-                )
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
-
-            foreach ($items as $item) {
-                $exercise = $exercises->get($item->exercise_id);
-
-                if (
-                    ! $exercise
-                    || ! $muscleGroups->has($exercise->muscle_group_id)
-                ) {
+                if ($items->isEmpty()) {
                     throw ValidationException::withMessages([
-                        'workout_plan_id' => "Item plan ID {$item->id} memakai exercise atau kategori yang tidak aktif. Ganti atau hapus item tersebut.",
+                        'workout_plan_id' => [
+                            'Tambahkan minimal satu exercise sebelum memulai workout.',
+                        ],
                     ]);
                 }
-            }
 
-            $session = $user->workoutSessions()->create([
-                'workout_plan_id' => $plan->id,
-                'client_request_id' => $requestId,
-                'plan_name_snapshot' => $plan->name,
-                'status' => WorkoutSession::STATUS_IN_PROGRESS,
-                'started_at' => now(),
-            ]);
+                $exercises = Exercise::query()
+                    ->whereIn(
+                        'id',
+                        $items->pluck('exercise_id')->unique()->all()
+                    )
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
 
-            foreach ($items->sortBy('sort_order') as $item) {
-                $exercise = $exercises->get($item->exercise_id);
-                $muscleGroup = $muscleGroups->get(
-                    $exercise->muscle_group_id
-                );
+                $muscleGroups = MuscleGroup::query()
+                    ->whereIn(
+                        'id',
+                        $exercises->pluck('muscle_group_id')->unique()->all()
+                    )
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
 
-                $session->sessionExercises()->create([
-                    'exercise_id' => $exercise->id,
-                    'exercise_name_snapshot' => $exercise->name,
-                    'muscle_group_name_snapshot' => $muscleGroup->name,
-                    'equipment_snapshot' => $exercise->equipment,
+                foreach ($items as $item) {
+                    $exercise = $exercises->get($item->exercise_id);
 
-                    'sort_order' => $item->sort_order,
-                    'target_sets' => $item->target_sets,
-                    'target_reps' => $item->target_reps,
-                    'target_weight_kg' => $item->target_weight_kg,
-                    'rest_seconds' => $item->rest_seconds,
-                    'notes' => $item->notes,
+                    if (
+                        $exercise === null
+                        || ! $muscleGroups->has($exercise->muscle_group_id)
+                    ) {
+                        throw ValidationException::withMessages([
+                            'workout_plan_id' => [
+                                "Exercise pada item plan {$item->id} sudah tidak tersedia. Perbarui workout plan terlebih dahulu.",
+                            ],
+                        ]);
+                    }
+                }
+
+                $session = $user->workoutSessions()->create([
+                    'workout_plan_id' => $plan->id,
+                    'client_request_id' => $clientRequestId,
+                    'plan_name_snapshot' => $plan->name,
+                    'status' => WorkoutSession::STATUS_IN_PROGRESS,
+                    'started_at' => now(),
                 ]);
-            }
 
-            return [$session, true];
-        }, 3);
+                // Simpan snapshot agar riwayat tidak mengikuti edit katalog.
+                foreach ($items->sortBy('sort_order') as $item) {
+                    $exercise = $exercises->get($item->exercise_id);
+                    $muscleGroup = $muscleGroups->get(
+                        $exercise->muscle_group_id
+                    );
+
+                    $session->sessionExercises()->create([
+                        'exercise_id' => $exercise->id,
+                        'exercise_name_snapshot' => $exercise->name,
+                        'muscle_group_name_snapshot' => $muscleGroup->name,
+                        'equipment_snapshot' => $exercise->equipment,
+                        'sort_order' => $item->sort_order,
+                        'target_sets' => $item->target_sets,
+                        'target_reps' => $item->target_reps,
+                        'target_weight_kg' => $item->target_weight_kg,
+                        'rest_seconds' => $item->rest_seconds,
+                        'notes' => $item->notes,
+                    ]);
+                }
+
+                return [$session, true];
+            },
+            3
+        );
 
         $this->loadSession($session);
 
@@ -160,12 +244,15 @@ class WorkoutSessionController extends Controller
             ->additional([
                 'message' => $created
                     ? 'Workout berhasil dimulai.'
-                    : 'Request sudah diproses. Sesi yang sama dikembalikan.',
+                    : 'Workout dari request sebelumnya berhasil diambil.',
             ])
             ->response()
             ->setStatusCode($created ? 201 : 200);
     }
 
+    /**
+     * Mengambil workout yang sedang berlangsung.
+     */
     public function active(Request $request): JsonResponse
     {
         $session = $request->user()
@@ -173,9 +260,9 @@ class WorkoutSessionController extends Controller
             ->where('status', WorkoutSession::STATUS_IN_PROGRESS)
             ->first();
 
-        if (! $session) {
+        if ($session === null) {
             return response()->json([
-                'message' => 'Tidak ada workout aktif.',
+                'message' => 'Tidak ada workout yang sedang berlangsung.',
                 'data' => null,
             ]);
         }
@@ -189,10 +276,13 @@ class WorkoutSessionController extends Controller
             ->response();
     }
 
+    /**
+     * Detail workout beserta exercise dan set.
+     */
     public function show(
         Request $request,
         string $workoutSession
-    ): WorkoutSessionResource {
+    ): JsonResponse {
         $session = $request->user()
             ->workoutSessions()
             ->findOrFail($workoutSession);
@@ -202,116 +292,131 @@ class WorkoutSessionController extends Controller
         return (new WorkoutSessionResource($session))
             ->additional([
                 'message' => 'Detail workout berhasil diambil.',
-            ]);
+            ])
+            ->response();
     }
 
-    public function cancel(
+    /**
+     * Menyelesaikan workout.
+     */
+    public function complete(
         Request $request,
         string $workoutSession
-    ): WorkoutSessionResource {
-        $session = DB::transaction(function () use (
-            $request,
-            $workoutSession
-        ) {
-            $session = $request->user()
-                ->workoutSessions()
-                ->lockForUpdate()
-                ->findOrFail($workoutSession);
+    ): JsonResponse {
+        $session = DB::transaction(
+            function () use ($request, $workoutSession) {
+                $session = $request->user()
+                    ->workoutSessions()
+                    ->whereKey($workoutSession)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            // Retry pembatalan tidak mengubah waktu selesai.
-            if ($session->status === WorkoutSession::STATUS_CANCELLED) {
+                // Retry tidak mengubah waktu selesai atau durasi.
+                if ($session->status === WorkoutSession::STATUS_COMPLETED) {
+                    return $session;
+                }
+
+                if ($session->status !== WorkoutSession::STATUS_IN_PROGRESS) {
+                    throw new HttpResponseException(
+                        response()->json([
+                            'message' => 'Workout yang dibatalkan tidak dapat diselesaikan.',
+                        ], 409)
+                    );
+                }
+
+                $hasSets = $session->sessionExercises()
+                    ->whereHas('sets')
+                    ->exists();
+
+                if (! $hasSets) {
+                    throw ValidationException::withMessages([
+                        'workout_session' => [
+                            'Catat minimal satu set sebelum menyelesaikan workout.',
+                        ],
+                    ]);
+                }
+
+                $finishedAt = now();
+
+                $session->update([
+                    'status' => WorkoutSession::STATUS_COMPLETED,
+                    'finished_at' => $finishedAt,
+                    'duration_seconds' => max(
+                        0,
+                        (int) $session->started_at->diffInSeconds($finishedAt)
+                    ),
+                ]);
+
                 return $session;
-            }
-
-            if ($session->status !== WorkoutSession::STATUS_IN_PROGRESS) {
-                throw new HttpResponseException(
-                    response()->json([
-                        'message' => 'Workout yang sudah selesai tidak dapat dibatalkan.',
-                    ], 409)
-                );
-            }
-
-            $finishedAt = now();
-
-            $session->update([
-                'status' => WorkoutSession::STATUS_CANCELLED,
-                'finished_at' => $finishedAt,
-                'duration_seconds' => max(
-                    0,
-                    (int) $session->started_at->diffInSeconds($finishedAt)
-                ),
-            ]);
-
-            return $session;
-        }, 3);
+            },
+            3
+        );
 
         $this->loadSession($session);
 
         return (new WorkoutSessionResource($session))
             ->additional([
-                'message' => 'Workout dibatalkan.',
-            ]);
+                'message' => 'Workout berhasil diselesaikan.',
+            ])
+            ->response();
     }
 
-    public function complete(
-    Request $request,
-    string $workoutSession
-): WorkoutSessionResource {
-    $session = DB::transaction(function () use (
-        $request,
-        $workoutSession
-    ) {
-        $session = $request->user()
-            ->workoutSessions()
-            ->lockForUpdate()
-            ->findOrFail($workoutSession);
+    /**
+     * Membatalkan workout.
+     */
+    public function cancel(
+        Request $request,
+        string $workoutSession
+    ): JsonResponse {
+        $session = DB::transaction(
+            function () use ($request, $workoutSession) {
+                $session = $request->user()
+                    ->workoutSessions()
+                    ->whereKey($workoutSession)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-        // Retry complete mengembalikan sesi yang sama.
-        if ($session->status === WorkoutSession::STATUS_COMPLETED) {
-            return $session;
-        }
+                // Retry pembatalan mengembalikan sesi yang sama.
+                if ($session->status === WorkoutSession::STATUS_CANCELLED) {
+                    return $session;
+                }
 
-        if ($session->status !== WorkoutSession::STATUS_IN_PROGRESS) {
-            throw new HttpResponseException(
-                response()->json([
-                    'message' => 'Workout yang dibatalkan tidak dapat diselesaikan.',
-                ], 409)
-            );
-        }
+                if ($session->status !== WorkoutSession::STATUS_IN_PROGRESS) {
+                    throw new HttpResponseException(
+                        response()->json([
+                            'message' => 'Workout yang sudah selesai tidak dapat dibatalkan.',
+                        ], 409)
+                    );
+                }
 
-        $hasCompletedSet = $session->sessionExercises()
-            ->whereHas('sets')
-            ->exists();
+                $finishedAt = now();
 
-        if (! $hasCompletedSet) {
-            throw ValidationException::withMessages([
-                'workout_session' =>
-                    'Catat minimal satu set sebelum menyelesaikan workout.',
-            ]);
-        }
+                $session->update([
+                    'status' => WorkoutSession::STATUS_CANCELLED,
+                    'finished_at' => $finishedAt,
+                    'duration_seconds' => max(
+                        0,
+                        (int) $session->started_at->diffInSeconds($finishedAt)
+                    ),
+                ]);
 
-        $finishedAt = now();
+                return $session;
+            },
+            3
+        );
 
-        $session->update([
-            'status' => WorkoutSession::STATUS_COMPLETED,
-            'finished_at' => $finishedAt,
-            'duration_seconds' => max(
-                0,
-                (int) $session->started_at->diffInSeconds($finishedAt)
-            ),
-        ]);
+        $this->loadSession($session);
 
-        return $session;
-    }, 3);
+        return (new WorkoutSessionResource($session))
+            ->additional([
+                'message' => 'Workout berhasil dibatalkan.',
+            ])
+            ->response();
+    }
 
-    $this->loadSession($session);
-
-    return (new WorkoutSessionResource($session))
-        ->additional([
-            'message' => 'Workout berhasil diselesaikan.',
-        ]);
-}
-
+    /**
+     * Relasi untuk detail dan ringkasan workout.
+     */
     private function loadSession(WorkoutSession $session): void
     {
         $session->load('sessionExercises.sets');
