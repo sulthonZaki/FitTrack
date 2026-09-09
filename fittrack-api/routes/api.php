@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ExerciseController;
 use App\Http\Controllers\Api\V1\MuscleGroupController;
+use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\ProgressController;
 use App\Http\Controllers\Api\V1\StatisticsController;
 use App\Http\Controllers\Api\V1\WorkoutPlanController;
@@ -20,7 +21,12 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:10,1');
 
     Route::middleware('auth:sanctum')->group(function () {
+        // Profile dan logout
         Route::get('/me', [AuthController::class, 'me']);
+
+        Route::patch('/me', [ProfileController::class, 'update'])
+            ->middleware('throttle:10,1');
+
         Route::post('/logout', [AuthController::class, 'logout']);
 
         // Exercise Library
