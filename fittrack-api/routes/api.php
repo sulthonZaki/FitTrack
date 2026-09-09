@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ExerciseController;
 use App\Http\Controllers\Api\V1\MuscleGroupController;
+use App\Http\Controllers\Api\V1\ProgressController;
 use App\Http\Controllers\Api\V1\StatisticsController;
 use App\Http\Controllers\Api\V1\WorkoutPlanController;
 use App\Http\Controllers\Api\V1\WorkoutPlanExerciseController;
@@ -11,7 +12,6 @@ use App\Http\Controllers\Api\V1\WorkoutSetController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
-
     // Authentication
     Route::post('/register', [AuthController::class, 'register'])
         ->middleware('throttle:5,1');
@@ -20,129 +20,116 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:10,1');
 
     Route::middleware('auth:sanctum')->group(function () {
-
-        // Profile dan logout
         Route::get('/me', [AuthController::class, 'me']);
-
         Route::post('/logout', [AuthController::class, 'logout']);
 
-        // Muscle groups
-        Route::get(
-            '/muscle-groups',
-            [MuscleGroupController::class, 'index']
-        );
+        // Exercise Library
+        Route::get('/muscle-groups', [
+            MuscleGroupController::class, 'index',
+        ]);
 
-        // Exercise library
-        Route::get(
-            '/exercises',
-            [ExerciseController::class, 'index']
-        );
+        Route::get('/exercises', [
+            ExerciseController::class, 'index',
+        ]);
 
-        Route::get(
-            '/exercises/{exercise}',
-            [ExerciseController::class, 'show']
-        )->whereNumber('exercise');
+        Route::get('/exercises/{exercise}', [
+            ExerciseController::class, 'show',
+        ])->whereNumber('exercise');
 
-        // Workout plans
-        Route::get(
-            '/workout-plans',
-            [WorkoutPlanController::class, 'index']
-        );
+        // Workout Plans
+        Route::get('/workout-plans', [
+            WorkoutPlanController::class, 'index',
+        ]);
 
-        Route::post(
-            '/workout-plans',
-            [WorkoutPlanController::class, 'store']
-        );
+        Route::post('/workout-plans', [
+            WorkoutPlanController::class, 'store',
+        ]);
 
-        Route::get(
-            '/workout-plans/{workoutPlan}',
-            [WorkoutPlanController::class, 'show']
-        )->whereNumber('workoutPlan');
+        Route::get('/workout-plans/{workoutPlan}', [
+            WorkoutPlanController::class, 'show',
+        ])->whereNumber('workoutPlan');
 
-        Route::put(
-            '/workout-plans/{workoutPlan}',
-            [WorkoutPlanController::class, 'update']
-        )->whereNumber('workoutPlan');
+        Route::put('/workout-plans/{workoutPlan}', [
+            WorkoutPlanController::class, 'update',
+        ])->whereNumber('workoutPlan');
 
-        Route::delete(
-            '/workout-plans/{workoutPlan}',
-            [WorkoutPlanController::class, 'destroy']
-        )->whereNumber('workoutPlan');
+        Route::delete('/workout-plans/{workoutPlan}', [
+            WorkoutPlanController::class, 'destroy',
+        ])->whereNumber('workoutPlan');
 
-        // Exercise dalam plan
-        Route::post(
-            '/workout-plans/{workoutPlan}/exercises',
-            [WorkoutPlanExerciseController::class, 'store']
-        )->whereNumber('workoutPlan');
+        // Exercises dalam Workout Plan
+        Route::post('/workout-plans/{workoutPlan}/exercises', [
+            WorkoutPlanExerciseController::class, 'store',
+        ])->whereNumber('workoutPlan');
 
-        Route::patch(
-            '/workout-plans/{workoutPlan}/exercises/{itemId}',
-            [WorkoutPlanExerciseController::class, 'update']
-        )->whereNumber('workoutPlan')->whereNumber('itemId');
+        Route::patch('/workout-plans/{workoutPlan}/exercises/{itemId}', [
+            WorkoutPlanExerciseController::class, 'update',
+        ])->whereNumber(['workoutPlan', 'itemId']);
 
-        Route::delete(
-            '/workout-plans/{workoutPlan}/exercises/{itemId}',
-            [WorkoutPlanExerciseController::class, 'destroy']
-        )->whereNumber('workoutPlan')->whereNumber('itemId');
+        Route::delete('/workout-plans/{workoutPlan}/exercises/{itemId}', [
+            WorkoutPlanExerciseController::class, 'destroy',
+        ])->whereNumber(['workoutPlan', 'itemId']);
 
-        Route::put(
-            '/workout-plans/{workoutPlan}/exercise-order',
-            [WorkoutPlanExerciseController::class, 'reorder']
-        )->whereNumber('workoutPlan');
+        Route::put('/workout-plans/{workoutPlan}/exercise-order', [
+            WorkoutPlanExerciseController::class, 'reorder',
+        ])->whereNumber('workoutPlan');
 
-        // Workout sessions dan history
-        Route::get(
-            '/workout-sessions',
-            [WorkoutSessionController::class, 'index']
-        );
+        // Workout Sessions
+        Route::get('/workout-sessions', [
+            WorkoutSessionController::class, 'index',
+        ]);
 
-        Route::post(
-            '/workout-sessions',
-            [WorkoutSessionController::class, 'store']
-        );
+        Route::post('/workout-sessions', [
+            WorkoutSessionController::class, 'store',
+        ]);
 
-        Route::get(
-            '/workout-sessions/active',
-            [WorkoutSessionController::class, 'active']
-        );
+        Route::get('/workout-sessions/active', [
+            WorkoutSessionController::class, 'active',
+        ]);
 
-        Route::get(
-            '/workout-sessions/{workoutSession}',
-            [WorkoutSessionController::class, 'show']
-        )->whereNumber('workoutSession');
+        Route::get('/workout-sessions/{workoutSession}', [
+            WorkoutSessionController::class, 'show',
+        ])->whereNumber('workoutSession');
 
-        Route::put(
-            '/workout-sessions/{workoutSession}/cancel',
-            [WorkoutSessionController::class, 'cancel']
-        )->whereNumber('workoutSession');
+        Route::put('/workout-sessions/{workoutSession}/cancel', [
+            WorkoutSessionController::class, 'cancel',
+        ])->whereNumber('workoutSession');
 
-        Route::put(
-            '/workout-sessions/{workoutSession}/complete',
-            [WorkoutSessionController::class, 'complete']
-        )->whereNumber('workoutSession');
+        Route::put('/workout-sessions/{workoutSession}/complete', [
+            WorkoutSessionController::class, 'complete',
+        ])->whereNumber('workoutSession');
 
-        // Pencatatan set
+        // Workout Sets
         Route::put(
             '/workout-sessions/{workoutSession}/exercises/{sessionExerciseId}/sets/{setNumber}',
             [WorkoutSetController::class, 'upsert']
-        )
-            ->whereNumber('workoutSession')
-            ->whereNumber('sessionExerciseId')
-            ->whereNumber('setNumber');
+        )->whereNumber([
+            'workoutSession',
+            'sessionExerciseId',
+            'setNumber',
+        ]);
 
         Route::delete(
             '/workout-sessions/{workoutSession}/exercises/{sessionExerciseId}/sets/{setNumber}',
             [WorkoutSetController::class, 'destroy']
-        )
-            ->whereNumber('workoutSession')
-            ->whereNumber('sessionExerciseId')
-            ->whereNumber('setNumber');
+        )->whereNumber([
+            'workoutSession',
+            'sessionExerciseId',
+            'setNumber',
+        ]);
+
+        // Progress
+        Route::get('/progress', [
+            ProgressController::class, 'index',
+        ]);
+
+        Route::get('/progress/{exercise}', [
+            ProgressController::class, 'show',
+        ])->whereNumber('exercise');
 
         // Statistics
-        Route::get(
-            '/statistics',
-            [StatisticsController::class, 'index']
-        );
-
+        Route::get('/statistics', [
+            StatisticsController::class, 'index',
+        ]);
     });
 });
